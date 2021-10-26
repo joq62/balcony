@@ -1,0 +1,27 @@
+PROJECT = websocket
+PROJECT_DESCRIPTION = Cowboy Websocket example
+PROJECT_VERSION = 1
+
+DEPS = cowboy
+dep_cowboy_commit = master
+
+# Need to change path based on how its deployed and dir name!
+#include balcony/erlang.mk
+include erlang.mk 
+# Joq Erlang code
+c0:
+	rm -rf *~ *.dump;
+c1:
+	rm -rf deps;
+	rm -rf */*.beam *~ */*~
+git:
+	rm -rf */*.beam *~ */*~ *.dump;
+	cp src/*.app ebin;
+	erlc -o ebin src/*.erl;
+balcony:
+	rm -rf */*.beam *~ */*~ *.dump *.html;
+	cp priv/*.html ebin;
+	cp src/*.app ebin;
+	erlc -o ebin src/*.erl;
+	cp deps/cowboy/ebin/* ebin;
+	erl -pa deps/cowboy/ebin -pa deps/ranch/ebin -pa deps/cowlib/ebin -pa ebin -run balcony boot -sname balcony
