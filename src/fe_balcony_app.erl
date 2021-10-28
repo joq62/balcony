@@ -1,7 +1,7 @@
 %% Author: uabjle
 %% Created: 10 dec 2012
 %% Description: TODO: Add description to application_org
--module(balcony_app).
+-module(fe_balcony_app).
 
 -behaviour(application).
 %% --------------------------------------------------------------------
@@ -61,7 +61,7 @@ start(_Type, _Args) ->
 
    % PathToFile="applications/balcony/ebin/index.html",
     HelloRoute = { "/", cowboy_static, {file,FullPath} },
-    WebSocketRoute = {"/please_upgrade_to_websocket", balcony_handler, []},
+    WebSocketRoute = {"/please_upgrade_to_websocket", fe_balcony_handler, []},
     CatchallRoute = {"/[...]", no_matching_route_handler, []},
 
     Dispatch = cowboy_router:compile([
@@ -75,7 +75,7 @@ start(_Type, _Args) ->
     {ok, _} = cowboy:start_clear(http, [{port, Port}], #{
 							 env => #{dispatch => Dispatch}
 							}),
-    {ok,Pid}= balcony_sup:start_link(),
+    {ok,Pid}= fe_balcony_sup:start_link(),
     {ok,Pid}.
    
 %% --------------------------------------------------------------------

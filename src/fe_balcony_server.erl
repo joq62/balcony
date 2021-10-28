@@ -9,7 +9,7 @@
 %%% Pod consits beams from all services, app and app and sup erl.
 %%% The setup of envs is
 %%% -------------------------------------------------------------------
--module(balcony_server).  
+-module(fe_balcony_server).  
 -behaviour(gen_server).
 
 %% --------------------------------------------------------------------
@@ -27,7 +27,7 @@
 		wanted_temp,
 		actual_temp,
 	        actual_door,
-	        actual_visitor}).
+	        actual_motion}).
 
 
 
@@ -72,22 +72,12 @@ check()->
 %
 %% --------------------------------------------------------------------
 init([]) ->
-    % call gun_client 
-    {ok,_}=gun_client_server:start(),
-    ActualTemp=rpc:call(node(),conbee,get_temp,[]),
-%    io:format("ActualTemp ~p~n",[{ActualTemp,?MODULE,?LINE}]),
-    ActualDoor=rpc:call(node(),conbee,get_door,[]),
-%    io:format("ActualDoor ~p~n",[{ActualDoor,?MODULE,?LINE}]),
-    ActualVisitor=rpc:call(node(),conbee,get_visitor,[]),
-%    io:format("ActualVisitor ~p~n",[{ActualVisitor,?MODULE,?LINE}]),
-    WantedTemp="20.0",
-
-    spawn(fun()->do_check() end),
+    Temp="42.0",Door="closed",Motion="inget av barnen",WTemp="20.0",
     
-    {ok, #state{actual_temp=ActualTemp,
-	        actual_door=ActualDoor,
-		actual_visitor=ActualVisitor,
-		wanted_temp=WantedTemp}}.
+    {ok, #state{wanted_temp=WTemp,
+		actual_temp=Temp,
+	        actual_door=Door,
+	        actual_motion=Motion}}.
     
 %% --------------------------------------------------------------------
 %% Function: handle_call/3
@@ -99,37 +89,74 @@ init([]) ->
 %%          {stop, Reason, Reply, State}   | (terminate/2 is called)
 %%          {stop, Reason, State}            (aterminate/2 is called)
 %% --------------------------------------------------------------------
-handle_call({decrease_temp},_From,State) ->
+handle_call({websocket_init,Pid},_From,State) ->
+    {Reply,NewState}=format_text(init,State#state{pid=Pid}),
+    {reply, Reply,NewState};
+
+
+handle_call({websocket_handle,{text, <<"decrease_temp">>}},_From,State) ->
     NewWantedTemp=list_to_float(State#state.wanted_temp)-0.5,
-    Reply=float_to_list(NewWantedTemp,[{decimals,1}]),
-    {reply, Reply, State#state{wanted_temp=Reply}};
-handle_call({increase_temp},_From,State) ->
+    NewWantedTempStr=float_to_list(NewWantedTemp,[{decimals,1}]),
+    {Reply,NewState}=format_text(wanted_temp,NewWantedTempStr,State),
+    {reply, Reply, NewState};
+
+
+handle_call({websocket_handle,{text, <<"increase_temp">>}},_From,State) ->
     NewWantedTemp=list_to_float(State#state.wanted_temp)+0.5,
-    Reply=float_to_list(NewWantedTemp,[{decimals,1}]),
-    {reply, Reply, State#state{wanted_temp=Reply}};
+    NewWantedTempStr=float_to_list(NewWantedTemp,[{decimals,1}]),
+    {Reply,NewState}=format_text(wanted_temp,NewWantedTempStr,State),
+    {reply, Reply, NewState};
 
 
-handle_call({temp,T},_From,State) ->
-    io:format("~p~n",[{temp,T,?MODULE,?FUNCTION_NAME,?LINE}]),
-    Reply=balcony_handler:actual_temp(T,State#state.pid),
-    {reply, Reply, State};
+handle_call({wanted_temp,T},_From,State) ->
+    WTemp=float_to_list(T,[{decimals,1}]),
+  %  io:format("~p~n",[{wanted_temp,WTemp,?MODULE,?FUNCTION_NAME,?LINE}]),
+    Reply=case is_pid(State#state.pid) of
+	      false->
+		  NewState=State,
+		  {error,[not_initiated,?MODULE,?FUNCTION_NAME,?LINE]};
+	      true->
+		  {Msg,NewState}=format_text(wanted_temp,WTemp,State),
+		  State#state.pid!Msg,
+		  ok
+	  end,
+    {reply, Reply, NewState};
 
 handle_call({door,S},_From,State) ->
-    Reply=balcony_handler:actual_door(S,State#state.pid),
-    {reply, Reply, State};
+    Reply=case is_pid(State#state.pid) of
+	      false->
+		  NewState=State,
+		  {error,[not_initiated,?MODULE,?FUNCTION_NAME,?LINE]};
+	      true->
+		  {Msg,NewState}=format_text(door,S,State),
+		  State#state.pid!Msg,
+		  ok
+	  end,
+    {reply, Reply, NewState};
 
-handle_call({visitor,S},_From,State) ->
-    Reply=balcony_handler:actual_visitor(S,State#state.pid),
-    {reply, Reply, State};
+handle_call({motion,S},_From,State) ->
+     Reply=case is_pid(State#state.pid) of
+	      false->
+		  NewState=State,
+		  {error,[not_initiated,?MODULE,?FUNCTION_NAME,?LINE]};
+	      true->
+		  {Msg,NewState}=format_text(motion,S,State),
+		  State#state.pid!Msg,
+		  ok
+	  end,
+    {reply, Reply, NewState};
 
-
-handle_call({pid,Pid},_From,State) ->    
-  %  io:format("~p~n",[{pid,Pid,?MODULE,?FUNCTION_NAME,?LINE}]),
-    NewState=State#state{pid=Pid},
-    Reply={State#state.actual_temp,
-	   State#state.actual_door,
-	   State#state.actual_visitor,
-	   State#state.wanted_temp},
+handle_call({temp,S},_From,State) ->
+    WTemp=float_to_list(S,[{decimals,1}]),
+     Reply=case is_pid(State#state.pid) of
+	      false->
+		  NewState=State,
+		  {error,[not_initiated,?MODULE,?FUNCTION_NAME,?LINE]};
+	      true->
+		  {Msg,NewState}=format_text(temp,WTemp,State),
+		  State#state.pid!Msg,
+		  ok
+	  end,
     {reply, Reply, NewState};
 
 handle_call({ping},_From,State) ->
@@ -171,7 +198,7 @@ handle_cast({check}, State) ->
 		false->
 		    balcony_handler:actual_door(ActualDoor,State#state.pid)
 	    end,
-	    case ActualVisitor=:=State#state.actual_visitor of
+	    case ActualVisitor=:=State#state.actual_motion of
 		true->
 		    ok;
 		false->
@@ -180,7 +207,7 @@ handle_cast({check}, State) ->
     end,
     NewState=State#state{actual_temp=ActualTemp,
 			 actual_door=ActualDoor,
-			 actual_visitor=ActualVisitor},
+			 actual_motion=ActualVisitor},
     spawn(fun()->do_check() end),
     {noreply, NewState};
 
@@ -242,3 +269,28 @@ do_check()->
 %% Description:
 %% Returns: non
 %% --------------------------------------------------------------------
+format_text(init,State)->
+    format_text(State).
+
+format_text(wanted_temp,WTemp,State)->
+    format_text(State#state{wanted_temp=WTemp});
+
+format_text(door,S,State)->
+    format_text(State#state{actual_door=S});  
+
+format_text(motion,S,State)->
+    format_text(State#state{actual_motion=S});
+
+format_text(temp,S,State)->
+    format_text(State#state{actual_temp=S}).
+
+format_text(NewState)->
+    Type=text,
+    M=io_lib,
+    F=format,
+    Temp=NewState#state.actual_temp,
+    Door=NewState#state.actual_door,
+    Motion=NewState#state.actual_motion,
+    WTemp=NewState#state.wanted_temp,
+    A=["~s~s~s~s~s~s~s", [Temp,",",Door,",",Motion,",",WTemp]],
+    {{ok,Type,M,F,A},NewState}.
